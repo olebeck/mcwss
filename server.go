@@ -5,10 +5,11 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"encoding/json"
-	"github.com/gorilla/websocket"
-	"github.com/sandertv/mcwss/protocol"
 	"log"
 	"net/http"
+
+	"github.com/gorilla/websocket"
+	"github.com/sandertv/mcwss/protocol"
 )
 
 // Server is the main entry-point of the mcwss package. It allows interfacing with clients connected to it and
@@ -118,7 +119,7 @@ func (server *Server) handleResponse(writer http.ResponseWriter, request *http.R
 			log.Printf("unexpected message type %v", msgType)
 			break
 		}
-		if player.encryptionSession != nil {
+		if player.encryptionSession != nil && msgType == websocket.BinaryMessage {
 			// Decrypt if the player's encryption session is established.
 			player.encryptionSession.decrypt(payload)
 		}

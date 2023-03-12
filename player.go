@@ -6,21 +6,23 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log"
+	"reflect"
+	"sync"
+
 	"github.com/gorilla/websocket"
 	"github.com/sandertv/mcwss/mctype"
 	"github.com/sandertv/mcwss/protocol"
 	"github.com/sandertv/mcwss/protocol/command"
 	"github.com/sandertv/mcwss/protocol/event"
 	"github.com/yudai/gojsondiff"
-	"log"
-	"reflect"
-	"sync"
 )
 
 // Player is a player connected to the websocket server.
 type Player struct {
 	*websocket.Conn
 	encryptionSession *encryptionSession
+	encryptionID      string
 	debug             bool
 
 	name      string
@@ -102,7 +104,7 @@ func (player *Player) Position(f func(position mctype.Position)) {
 	})
 }
 
-// Rotation requests the Y-Rotation (yaw) of a player and calls the function passed when a response is 
+// Rotation requests the Y-Rotation (yaw) of a player and calls the function passed when a response is
 // received, containing the rotation of the player.
 func (player *Player) Rotation(f func(rotation float64)) {
 	player.Exec(command.QueryTargetRequest(mctype.Target(player.name)), func(response *command.QueryTarget) {
@@ -487,6 +489,12 @@ func (player *Player) sendPackets() {
 
 // handleIncomingPacket handles an incoming packet, processing in particular the body of the packet.
 func (player *Player) handleIncomingPacket(packet protocol.Packet) error {
+	// store what id the encryption packets have
+	if _, ok := packet.Body.(*protocol.EnableEncryption); ok {
+		player.encryptionID = packet.Header.RequestID
+		return nil
+	}
+
 	switch body := packet.Body.(type) {
 	default:
 		// Unknown or invalid packet. Don't try to process this.
@@ -494,13 +502,20 @@ func (player *Player) handleIncomingPacket(packet protocol.Packet) error {
 	case *protocol.ErrorResponse:
 		return fmt.Errorf("a client side error occurred (code = %v): %v", body.StatusCode, body.StatusMessage)
 	case *protocol.CommandResponse:
-		player.Lock()
-		callback, ok := player.commandCallbacks[packet.Header.RequestID]
-		// Remove the command callback from the map.
-		delete(player.commandCallbacks, packet.Header.RequestID)
-		player.Unlock()
-		if !ok {
-			return fmt.Errorf("command response: got command response with unknown requestID %v", packet.Header.RequestID)
+		// ignore any encryption packets after encryption established
+		var callback reflect.Value
+		var ok bool
+		if packet.Header.RequestID != player.encryptionID || player.encryptionSession == nil {
+			player.Lock()
+			callback, ok = player.commandCallbacks[packet.Header.RequestID]
+			// Remove the command callback from the map.
+			delete(player.commandCallbacks, packet.Header.RequestID)
+			player.Unlock()
+			if !ok {
+				return fmt.Errorf("command response: got command response with unknown requestID %v", packet.Header.RequestID)
+			}
+		} else {
+			return nil
 		}
 
 		if callback.IsValid() {
@@ -586,7 +601,7 @@ func (player *Player) enableEncryption(privateKey *ecdsa.PrivateKey, salt []byte
 		panic(err)
 	}
 
-	player.Exec(command.EnableEncryptionRequest(encodedKey, salt), func(data *command.EnableEncryption) {
+	player.Exec(command.EnableEncryptionRequest(encodedKey, salt), func(data *protocol.EnableEncryption) {
 		pubKeyData, err := base64.StdEncoding.DecodeString(data.PublicKey)
 		if err != nil {
 			log.Printf("error base64 decoding client public key %v: %v", data.PublicKey, err)
