@@ -26,6 +26,21 @@ type Server struct {
 	privateKey *ecdsa.PrivateKey
 }
 
+type Websocket interface {
+	Close() error
+	ReadMessage() (msgType int, payload []byte, err error)
+	WriteMessage(msgType int, payload []byte) error
+}
+
+const (
+	// TextMessage denotes a text data message. The text message payload is
+	// interpreted as UTF-8 encoded text data.
+	TextMessage = 1
+
+	// BinaryMessage denotes a binary data message.
+	BinaryMessage = 2
+)
+
 // NewServer initialises and returns a new server. If the configuration passed in was non-nil, that
 // configuration is used. If nil is passed, the default configuration is used. (see config.go/defaultConfig())
 func NewServer(config *Config) *Server {
@@ -66,6 +81,17 @@ func (server *Server) Run() error {
 	return nil
 }
 
+// handleResponse handles the websocket response of a client connecting to the server. It first initialises
+// the websocket connection, after which it starts processing and sending packets.
+func (server *Server) handleResponse(writer http.ResponseWriter, request *http.Request) {
+	ws, err := server.upgrader.Upgrade(writer, request, nil)
+	if err != nil {
+		log.Printf("error upgrading request: %v", err)
+		return
+	}
+	server.HandleConnection(ws)
+}
+
 // OnConnection sets a handler to handle new connections from players. This method must be used to interact
 // with players connected.
 func (server *Server) OnConnection(handler func(player *Player)) {
@@ -78,15 +104,8 @@ func (server *Server) OnDisconnection(handler func(player *Player)) {
 	server.disconnectionFunc = handler
 }
 
-// handleResponse handles the websocket response of a client connecting to the server. It first initialises
-// the websocket connection, after which it starts processing and sending packets.
-func (server *Server) handleResponse(writer http.ResponseWriter, request *http.Request) {
-	ws, err := server.upgrader.Upgrade(writer, request, nil)
-	if err != nil {
-		log.Printf("error upgrading request: %v", err)
-		return
-	}
-
+// HandleConnection takes a Websocket and starts processing and sending packets.
+func (server *Server) HandleConnection(ws Websocket) {
 	// Initialise the player and add it to the players map.
 	player := NewPlayer(ws)
 	server.players[player] = true

@@ -13,6 +13,6 @@ type Config struct {
 func defaultConfig() Config {
 	return Config{
 		HandlerPattern: "/ws",
-		Address: ":8000",
+		Address:        ":8000",
 	}
 }

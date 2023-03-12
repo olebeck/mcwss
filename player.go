@@ -20,7 +20,7 @@ import (
 
 // Player is a player connected to the websocket server.
 type Player struct {
-	*websocket.Conn
+	Conn              Websocket
 	encryptionSession *encryptionSession
 	encryptionID      string
 	debug             bool
@@ -41,7 +41,7 @@ type Player struct {
 }
 
 // NewPlayer returns an initialised player for a websocket connection.
-func NewPlayer(conn *websocket.Conn) *Player {
+func NewPlayer(conn Websocket) *Player {
 	player := &Player{
 		Conn:             conn,
 		connected:        true,
